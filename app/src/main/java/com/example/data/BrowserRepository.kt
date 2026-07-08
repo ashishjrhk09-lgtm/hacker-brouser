@@ -10,6 +10,20 @@ class BrowserRepository(private val browserDao: BrowserDao) {
 
     val logs: Flow<List<ConsoleLog>> = browserDao.getAllLogsFlow()
 
+    val history: Flow<List<HistoryItem>> = browserDao.getAllHistoryFlow()
+
+    suspend fun insertHistory(item: HistoryItem) {
+        browserDao.insertHistory(item)
+    }
+
+    suspend fun clearHistory() {
+        browserDao.clearHistory()
+    }
+
+    suspend fun clearAllExtensions() {
+        browserDao.clearAllExtensions()
+    }
+
     suspend fun getSettingsDirect(): BrowserSettings? {
         return browserDao.getSettingsDirect()
     }

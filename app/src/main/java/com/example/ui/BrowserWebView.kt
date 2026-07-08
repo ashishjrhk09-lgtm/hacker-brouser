@@ -25,11 +25,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import com.example.data.Extension
 
 @SuppressLint("SetJavaScriptEnabled")
@@ -50,27 +53,9 @@ fun BrowserWebView(
     isPasscodeEnabled: Boolean,
     onConsoleLog: (level: String, message: String, sourceId: String, lineNumber: Int) -> Unit,
     onBlockedAttempt: (url: String) -> Unit,
+    viewModel: BrowserViewModel,
     modifier: Modifier = Modifier
 ) {
-    var webViewRef by remember { mutableStateOf<WebView?>(null) }
-    var currentUrl by remember { mutableStateOf(targetUrl) }
-    var canGoBack by remember { mutableStateOf(false) }
-    var canGoForward by remember { mutableStateOf(false) }
-    var isLoading by remember { mutableStateOf(false) }
-    var loadProgress by remember { mutableFloatStateOf(0f) }
-
-    // Toolbar collapse/expand state
-    var isToolbarVisible by remember { mutableStateOf(true) }
-    // Extensions side-panel visibility
-    var isSidebarVisible by remember { mutableStateOf(false) }
-    // Extension viewer detail dialog state
-    var activeViewingExtension by remember { mutableStateOf<Extension?>(null) }
-
-    // Handlers for physical back key
-    BackHandler(enabled = canGoBack) {
-        webViewRef?.goBack()
-    }
-
     // Normalize URL
     val initialUrl = remember(targetUrl) {
         val normalized = if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
@@ -85,6 +70,90 @@ fun BrowserWebView(
         }
     }
 
+    // Tabs / Slides state
+    val tabs = remember { mutableStateListOf<TabData>() }
+    var activeTabId by remember { mutableStateOf("") }
+    val webViewCache = remember { mutableMapOf<String, WebView>() }
+
+    if (tabs.isEmpty()) {
+        val defaultTab = TabData(id = java.util.UUID.randomUUID().toString(), title = "Home", url = initialUrl)
+        tabs.add(defaultTab)
+        activeTabId = defaultTab.id
+    }
+
+    var currentUrl by remember { mutableStateOf(initialUrl) }
+
+    // Sync currentUrl when switching activeTabId
+    LaunchedEffect(activeTabId) {
+        val tab = tabs.find { it.id == activeTabId }
+        if (tab != null) {
+            currentUrl = tab.url
+        }
+    }
+
+    var canGoBackActive by remember { mutableStateOf(false) }
+    var canGoForwardActive by remember { mutableStateOf(false) }
+    var isLoading by remember { mutableStateOf(false) }
+    var loadProgress by remember { mutableFloatStateOf(0f) }
+
+    // Toolbar collapse/expand state
+    var isToolbarVisible by remember { mutableStateOf(true) }
+    // Extensions side-panel visibility
+    var isSidebarVisible by remember { mutableStateOf(false) }
+    // Extension viewer detail dialog state
+    var activeViewingExtension by remember { mutableStateOf<Extension?>(null) }
+
+    // Handlers for physical back key
+    val activeWebView = webViewCache[activeTabId]
+    BackHandler(enabled = canGoBackActive) {
+        activeWebView?.goBack()
+    }
+
+    var showUrlInputDialog by remember { mutableStateOf(false) }
+    var tempUrlInput by remember { mutableStateOf("") }
+
+    if (showUrlInputDialog) {
+        AlertDialog(
+            onDismissRequest = { showUrlInputDialog = false },
+            title = { Text("Navigate to URL") },
+            text = {
+                OutlinedTextField(
+                    value = tempUrlInput,
+                    onValueChange = { tempUrlInput = it },
+                    label = { Text("Enter Website URL") },
+                    placeholder = { Text("e.g. google.com") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("address_dialog_input"),
+                    leadingIcon = { Icon(Icons.Default.Language, contentDescription = null) }
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showUrlInputDialog = false
+                        if (tempUrlInput.isNotBlank()) {
+                            val target = if (!tempUrlInput.startsWith("http://") && !tempUrlInput.startsWith("https://")) {
+                                "https://$tempUrlInput"
+                            } else {
+                                tempUrlInput
+                            }
+                            currentUrl = target
+                            val currentActiveView = webViewCache[activeTabId]
+                            currentActiveView?.loadUrl(target)
+                        }
+                    }
+                ) {
+                    Text("Go")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showUrlInputDialog = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+
     Box(modifier = modifier.fillMaxSize()) {
         Column(modifier = Modifier.fillMaxSize()) {
             // Browser Collapsible Toolbar
@@ -97,10 +166,21 @@ fun BrowserWebView(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(8.dp),
+                    shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(4.dp)
+                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
                     ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    border = BorderStroke(
+                        width = 1.2.dp,
+                        brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFF00D2FF).copy(alpha = 0.5f), // Neon Blue
+                                Color(0xFF00FF87).copy(alpha = 0.2f), // Neon Green
+                                Color(0xFF7B2CBF).copy(alpha = 0.4f)  // Cyber Violet
+                            )
+                        )
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
                 ) {
                     Column {
                         Row(
@@ -110,8 +190,8 @@ fun BrowserWebView(
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(
-                                onClick = { webViewRef?.goBack() },
-                                enabled = canGoBack
+                                onClick = { activeWebView?.goBack() },
+                                enabled = canGoBackActive
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ArrowBack,
@@ -120,8 +200,8 @@ fun BrowserWebView(
                             }
 
                             IconButton(
-                                onClick = { webViewRef?.goForward() },
-                                enabled = canGoForward
+                                onClick = { activeWebView?.goForward() },
+                                enabled = canGoForwardActive
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ArrowForward,
@@ -132,9 +212,9 @@ fun BrowserWebView(
                             IconButton(
                                 onClick = {
                                     if (isLoading) {
-                                        webViewRef?.stopLoading()
+                                        activeWebView?.stopLoading()
                                     } else {
-                                        webViewRef?.reload()
+                                        activeWebView?.reload()
                                     }
                                 }
                             ) {
@@ -165,7 +245,11 @@ fun BrowserWebView(
                             Surface(
                                 modifier = Modifier
                                     .weight(1f)
-                                    .height(38.dp),
+                                    .height(38.dp)
+                                    .clickable(enabled = !isUrlLocked) {
+                                        tempUrlInput = currentUrl
+                                        showUrlInputDialog = true
+                                    },
                                 shape = MaterialTheme.shapes.medium,
                                 color = MaterialTheme.colorScheme.surfaceContainer
                             ) {
@@ -215,19 +299,6 @@ fun BrowserWebView(
                                 }
                             }
 
-                            // FULLSCREEN IMMERSIVE TOGGLE (Hides top and triggers callback for bottom)
-                            IconButton(
-                                onClick = {
-                                    isToolbarVisible = false
-                                    onImmersiveModeChange(true)
-                                }
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Fullscreen,
-                                    contentDescription = "Enter Fullscreen Mode"
-                                )
-                            }
-
                             // PASSCODE QUICK LOCK
                             if (isPasscodeEnabled) {
                                 IconButton(onClick = onLockClick) {
@@ -237,6 +308,81 @@ fun BrowserWebView(
                                         tint = MaterialTheme.colorScheme.error
                                     )
                                 }
+                            }
+                        }
+
+                        // Horizontal Tab/Slide bar
+                        Divider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            LazyRow(
+                                modifier = Modifier.weight(1f),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                contentPadding = PaddingValues(end = 8.dp)
+                            ) {
+                                items(tabs) { tab ->
+                                    val isSelected = tab.id == activeTabId
+                                    InputChip(
+                                        selected = isSelected,
+                                        onClick = { activeTabId = tab.id },
+                                        label = {
+                                            Text(
+                                                text = tab.title,
+                                                maxLines = 1,
+                                                overflow = TextOverflow.Ellipsis,
+                                                style = MaterialTheme.typography.bodySmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal),
+                                                modifier = Modifier.widthIn(max = 100.dp)
+                                            )
+                                        },
+                                        trailingIcon = {
+                                            if (tabs.size > 1) {
+                                                IconButton(
+                                                    onClick = {
+                                                        val closedIndex = tabs.indexOfFirst { it.id == tab.id }
+                                                        if (closedIndex != -1) {
+                                                            tabs.removeAt(closedIndex)
+                                                            webViewCache.remove(tab.id)?.destroy()
+                                                            if (isSelected && tabs.isNotEmpty()) {
+                                                                activeTabId = tabs[Math.max(0, closedIndex - 1)].id
+                                                            }
+                                                        }
+                                                    },
+                                                    modifier = Modifier.size(16.dp)
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Close,
+                                                        contentDescription = "Close tab",
+                                                        modifier = Modifier.size(10.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        colors = InputChipDefaults.inputChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        ),
+                                        modifier = Modifier.testTag("tab_chip_${tab.id}")
+                                    )
+                                }
+                            }
+
+                            IconButton(
+                                onClick = {
+                                    val newTab = TabData(id = java.util.UUID.randomUUID().toString(), title = "New Tab", url = initialUrl)
+                                    tabs.add(newTab)
+                                    activeTabId = newTab.id
+                                },
+                                modifier = Modifier.size(36.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Add,
+                                    contentDescription = "New Slide",
+                                    tint = MaterialTheme.colorScheme.primary
+                                )
                             }
                         }
 
@@ -253,132 +399,174 @@ fun BrowserWebView(
             }
 
             // WebView Holder
-            AndroidView(
-                factory = { context ->
-                    WebView(context).apply {
-                        webViewRef = this
-                        layoutParams = ViewGroup.LayoutParams(
-                            ViewGroup.LayoutParams.MATCH_PARENT,
-                            ViewGroup.LayoutParams.MATCH_PARENT
-                        )
+            val activeTab = tabs.find { it.id == activeTabId } ?: tabs.first()
 
-                        settings.apply {
-                            javaScriptEnabled = true
-                            domStorageEnabled = true
-                            databaseEnabled = true
-                            useWideViewPort = true
-                            loadWithOverviewMode = true
-                            mixedContentMode = if (enforceHttps) {
-                                WebSettings.MIXED_CONTENT_NEVER_ALLOW
-                            } else {
-                                WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
-                            }
-                        }
+            key(activeTab.id) {
+                AndroidView(
+                    factory = { context ->
+                        webViewCache.getOrPut(activeTab.id) {
+                            WebView(context).apply {
+                                layoutParams = ViewGroup.LayoutParams(
+                                    ViewGroup.LayoutParams.MATCH_PARENT,
+                                    ViewGroup.LayoutParams.MATCH_PARENT
+                                )
 
-                        webChromeClient = object : WebChromeClient() {
-                            override fun onProgressChanged(view: WebView?, newProgress: Int) {
-                                loadProgress = newProgress / 100f
-                                super.onProgressChanged(view, newProgress)
-                            }
-
-                            override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
-                                if (consoleMessage != null && isDeveloperModeEnabled) {
-                                    val lvl = when (consoleMessage.messageLevel()) {
-                                        ConsoleMessage.MessageLevel.LOG -> "LOG"
-                                        ConsoleMessage.MessageLevel.WARNING -> "WARNING"
-                                        ConsoleMessage.MessageLevel.ERROR -> "ERROR"
-                                        ConsoleMessage.MessageLevel.DEBUG -> "DEBUG"
-                                        ConsoleMessage.MessageLevel.TIP -> "LOG"
-                                        else -> "LOG"
+                                settings.apply {
+                                    javaScriptEnabled = true
+                                    domStorageEnabled = true
+                                    databaseEnabled = true
+                                    useWideViewPort = true
+                                    loadWithOverviewMode = true
+                                    allowFileAccess = true
+                                    allowContentAccess = true
+                                    javaScriptCanOpenWindowsAutomatically = true
+                                    mediaPlaybackRequiresUserGesture = false
+                                    mixedContentMode = if (enforceHttps) {
+                                        WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                                    } else {
+                                        WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                                     }
-                                    onConsoleLog(
-                                        lvl,
-                                        consoleMessage.message() ?: "",
-                                        consoleMessage.sourceId() ?: "WebPage",
-                                        consoleMessage.lineNumber()
-                                    )
+
+                                    // Remove WebView indicators to bypass embedded browser detection and look genuine
+                                    val currentUA = userAgentString
+                                    if (currentUA != null) {
+                                        userAgentString = currentUA
+                                            .replace(Regex("Version/\\d+\\.\\d+\\s*"), "")
+                                            .replace("; wv", "")
+                                    } else {
+                                        userAgentString = "Mozilla/5.0 (Linux; Android 13; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Mobile Safari/537.36"
+                                    }
                                 }
-                                return super.onConsoleMessage(consoleMessage)
-                            }
-                        }
 
-                        webViewClient = object : WebViewClient() {
-                            override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
-                                isLoading = true
-                                url?.let { currentUrl = it }
-                                super.onPageStarted(view, url, favicon)
-                            }
+                                // Enable cookie persistence explicitly
+                                val cookieManager = CookieManager.getInstance()
+                                cookieManager.setAcceptCookie(true)
+                                cookieManager.setAcceptThirdPartyCookies(this, true)
 
-                            override fun onPageFinished(view: WebView?, url: String?) {
-                                isLoading = false
-                                url?.let { currentUrl = it }
-                                canGoBack = canGoBack()
-                                canGoForward = canGoForward()
-
-                                // Inject developer mode extensions
-                                if (isDeveloperModeEnabled && url != null) {
-                                    activeExtensions.forEach { extension ->
-                                        if (extension.type == "js") {
-                                            evaluateJavascript(extension.content, null)
-                                        } else if (extension.type == "css") {
-                                            val base64Css = Base64.encodeToString(
-                                                extension.content.toByteArray(),
-                                                Base64.NO_WRAP
-                                            )
-                                            val cssInject = """
-                                                (function() {
-                                                    var parent = document.head || document.documentElement;
-                                                    var style = document.getElementById('injected-css-${extension.id}');
-                                                    if (!style) {
-                                                        style = document.createElement('style');
-                                                        style.id = 'injected-css-${extension.id}';
-                                                        style.type = 'text/css';
-                                                        parent.appendChild(style);
-                                                    }
-                                                    style.textContent = atob('$base64Css');
-                                                })();
-                                            """.trimIndent()
-                                            evaluateJavascript(cssInject, null)
+                                webChromeClient = object : WebChromeClient() {
+                                    override fun onProgressChanged(view: WebView?, newProgress: Int) {
+                                        if (activeTabId == activeTab.id) {
+                                            loadProgress = newProgress / 100f
                                         }
+                                        super.onProgressChanged(view, newProgress)
+                                    }
+
+                                    override fun onConsoleMessage(consoleMessage: ConsoleMessage?): Boolean {
+                                        if (consoleMessage != null && isDeveloperModeEnabled) {
+                                            val lvl = when (consoleMessage.messageLevel()) {
+                                                ConsoleMessage.MessageLevel.LOG -> "LOG"
+                                                ConsoleMessage.MessageLevel.WARNING -> "WARNING"
+                                                ConsoleMessage.MessageLevel.ERROR -> "ERROR"
+                                                ConsoleMessage.MessageLevel.DEBUG -> "DEBUG"
+                                                ConsoleMessage.MessageLevel.TIP -> "LOG"
+                                                else -> "LOG"
+                                            }
+                                            onConsoleLog(
+                                                lvl,
+                                                consoleMessage.message() ?: "",
+                                                consoleMessage.sourceId() ?: "WebPage",
+                                                consoleMessage.lineNumber()
+                                            )
+                                        }
+                                        return super.onConsoleMessage(consoleMessage)
                                     }
                                 }
-                                super.onPageFinished(view, url)
-                            }
 
-                            override fun shouldOverrideUrlLoading(
-                                view: WebView?,
-                                request: WebResourceRequest?
-                            ): Boolean {
-                                val uri = request?.url ?: return false
-                                val host = uri.host ?: return false
-                                
-                                val targetUri = Uri.parse(initialUrl)
-                                val targetHost = targetUri.host ?: ""
+                                webViewClient = object : WebViewClient() {
+                                    override fun onPageStarted(view: WebView?, url: String?, favicon: Bitmap?) {
+                                        if (activeTabId == activeTab.id) {
+                                            isLoading = true
+                                            url?.let { currentUrl = it }
+                                        }
+                                        url?.let {
+                                            val idx = tabs.indexOfFirst { t -> t.id == activeTab.id }
+                                            if (idx != -1) {
+                                                tabs[idx] = tabs[idx].copy(url = it)
+                                            }
+                                        }
+                                        super.onPageStarted(view, url, favicon)
+                                    }
 
-                                if (isUrlLocked && !host.endsWith(targetHost) && !targetHost.endsWith(host)) {
-                                    onBlockedAttempt(uri.toString())
-                                    return true
+                                    override fun onPageFinished(view: WebView?, url: String?) {
+                                        if (activeTabId == activeTab.id) {
+                                            isLoading = false
+                                            url?.let { currentUrl = it }
+                                            canGoBackActive = canGoBack()
+                                            canGoForwardActive = canGoForward()
+                                        }
+                                        url?.let {
+                                            val idx = tabs.indexOfFirst { t -> t.id == activeTab.id }
+                                            if (idx != -1) {
+                                                tabs[idx] = tabs[idx].copy(
+                                                    url = it,
+                                                    title = view?.title ?: tabs[idx].title
+                                                )
+                                            }
+                                            viewModel.insertHistoryItem(view?.title ?: "", it)
+                                        }
+
+                                        // Persist and flush cookies to disk
+                                        CookieManager.getInstance().flush()
+
+                                        // Inject developer mode extensions
+                                        if (isDeveloperModeEnabled && url != null) {
+                                            activeExtensions.forEach { extension ->
+                                                if (extension.type == "js") {
+                                                    evaluateJavascript(extension.content, null)
+                                                } else if (extension.type == "css") {
+                                                    val base64Css = Base64.encodeToString(
+                                                        extension.content.toByteArray(),
+                                                        Base64.NO_WRAP
+                                                    )
+                                                    val cssInject = """
+                                                        (function() {
+                                                            var parent = document.head || document.documentElement;
+                                                            var style = document.getElementById('injected-css-${extension.id}');
+                                                            if (!style) {
+                                                                style = document.createElement('style');
+                                                                style.id = 'injected-css-${extension.id}';
+                                                                style.type = 'text/css';
+                                                                parent.appendChild(style);
+                                                            }
+                                                            style.textContent = atob('$base64Css');
+                                                        })();
+                                                    """.trimIndent()
+                                                    evaluateJavascript(cssInject, null)
+                                                }
+                                            }
+                                        }
+                                        super.onPageFinished(view, url)
+                                    }
+
+                                    override fun shouldOverrideUrlLoading(
+                                        view: WebView?,
+                                        request: WebResourceRequest?
+                                    ): Boolean {
+                                        val uri = request?.url ?: return false
+                                        val host = uri.host ?: return false
+                                        
+                                        val targetUri = Uri.parse(initialUrl)
+                                        val targetHost = targetUri.host ?: ""
+
+                                        if (isUrlLocked && !host.endsWith(targetHost) && !targetHost.endsWith(host)) {
+                                            onBlockedAttempt(uri.toString())
+                                            return true
+                                        }
+                                        return false
+                                    }
                                 }
-                                return false
+
+                                loadUrl(activeTab.url)
                             }
                         }
-
-                        loadUrl(initialUrl)
-                    }
-                },
-                update = { webView ->
-                    val normalizedTarget = if (!initialUrl.startsWith("http://") && !initialUrl.startsWith("https://")) {
-                        "https://$initialUrl"
-                    } else {
-                        initialUrl
-                    }
-                    
-                    if (webView.url == null || (isUrlLocked && !webView.url!!.contains(normalizedTarget.substringAfter("://")))) {
-                        webView.loadUrl(normalizedTarget)
-                    }
-                },
-                modifier = Modifier.weight(1f)
-            )
+                    },
+                    update = { webView ->
+                        // Cookies and configurations updated
+                        CookieManager.getInstance().flush()
+                    },
+                    modifier = Modifier.weight(1f)
+                )
+            }
         }
 
         // FLOATING SHOW-BAR RESTORE HANDLE (Visible when toolbar is collapsed)
@@ -390,37 +578,60 @@ fun BrowserWebView(
                 .align(Alignment.TopCenter)
                 .padding(top = 12.dp)
         ) {
-            Surface(
+            Box(
                 modifier = Modifier
                     .clip(CircleShape)
+                    .background(
+                        androidx.compose.ui.graphics.Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFFFFFFFF).copy(alpha = 0.12f),
+                                Color(0xFF00D2FF).copy(alpha = 0.08f)
+                            )
+                        )
+                    )
+                    .background(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF00D2FF).copy(alpha = 0.15f),
+                                Color.Transparent
+                            ),
+                            radius = 200f
+                        )
+                    )
+                    .border(
+                        BorderStroke(
+                            width = 1.5.dp,
+                            brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                                colors = listOf(
+                                    Color(0xFF00D2FF).copy(alpha = 0.7f), // Neon Blue liquid border
+                                    Color(0xFF00FF87).copy(alpha = 0.3f), // Neon Green liquid border
+                                    Color(0xFF7B2CBF).copy(alpha = 0.6f)  // Cyber Violet liquid border
+                                )
+                            )
+                        ),
+                        shape = CircleShape
+                    )
                     .clickable {
                         isToolbarVisible = true
                         onImmersiveModeChange(false)
                     }
-                    .border(
-                        1.dp,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-                        CircleShape
-                    ),
-                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
-                tonalElevation = 6.dp,
-                shadowElevation = 4.dp
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                contentAlignment = Alignment.Center
             ) {
                 Row(
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
                     Icon(
                         imageVector = Icons.Default.Visibility,
                         contentDescription = "Show controls",
-                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        tint = Color(0xFF00D2FF), // Glowing Neon Blue
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
                         text = "Show Toolbar",
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        color = Color.White // Crisp white for liquid glass readability
                     )
                 }
             }
@@ -632,7 +843,7 @@ fun BrowserWebView(
                         // Reload web tab button
                         Button(
                             onClick = {
-                                webViewRef?.reload()
+                                activeWebView?.reload()
                                 isSidebarVisible = false
                             },
                             modifier = Modifier
@@ -755,7 +966,7 @@ fun BrowserWebView(
                         TextButton(
                             onClick = {
                                 if (ext.type == "js") {
-                                    webViewRef?.evaluateJavascript(ext.content, null)
+                                    activeWebView?.evaluateJavascript(ext.content, null)
                                 } else if (ext.type == "css") {
                                     val base64Css = Base64.encodeToString(
                                         ext.content.toByteArray(),
@@ -774,7 +985,7 @@ fun BrowserWebView(
                                             style.textContent = atob('$base64Css');
                                         })();
                                     """.trimIndent()
-                                    webViewRef?.evaluateJavascript(cssInject, null)
+                                    activeWebView?.evaluateJavascript(cssInject, null)
                                 }
                                 activeViewingExtension = null
                             }
@@ -792,3 +1003,9 @@ fun BrowserWebView(
         }
     }
 }
+
+data class TabData(
+    val id: String = java.util.UUID.randomUUID().toString(),
+    val title: String = "Home",
+    val url: String
+)

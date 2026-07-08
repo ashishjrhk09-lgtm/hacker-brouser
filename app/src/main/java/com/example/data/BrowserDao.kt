@@ -37,4 +37,16 @@ interface BrowserDao {
 
     @Query("DELETE FROM console_logs")
     suspend fun clearLogs()
+
+    @Query("SELECT * FROM browser_history ORDER BY timestamp DESC LIMIT 200")
+    fun getAllHistoryFlow(): Flow<List<HistoryItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertHistory(item: HistoryItem)
+
+    @Query("DELETE FROM browser_history")
+    suspend fun clearHistory()
+
+    @Query("DELETE FROM extensions")
+    suspend fun clearAllExtensions()
 }

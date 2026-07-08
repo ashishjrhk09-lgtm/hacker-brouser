@@ -40,6 +40,13 @@ class BrowserViewModel(
             initialValue = emptyList()
         )
 
+    val history: StateFlow<List<HistoryItem>> = repository.history
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList()
+        )
+
     // Authorization flow for PIN secure lock
     private val _isAuthorized = MutableStateFlow(true)
     val isAuthorized: StateFlow<Boolean> = _isAuthorized.asStateFlow()
@@ -168,6 +175,37 @@ class BrowserViewModel(
     fun clearLogs() {
         viewModelScope.launch {
             repository.clearLogs()
+        }
+    }
+
+    fun insertHistoryItem(title: String, url: String) {
+        viewModelScope.launch {
+            if (url.isNotBlank() && !url.startsWith("data:") && !url.startsWith("blob:")) {
+                repository.insertHistory(HistoryItem(title = title.ifBlank { url }, url = url))
+            }
+        }
+    }
+
+    fun clearHistory() {
+        viewModelScope.launch {
+            repository.clearHistory()
+        }
+    }
+
+    fun clearAllData(onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.clearHistory()
+            repository.clearLogs()
+            repository.clearAllExtensions()
+            repository.saveSettings(BrowserSettings())
+            try {
+                android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                android.webkit.CookieManager.getInstance().flush()
+                android.webkit.WebStorage.getInstance().deleteAllData()
+            } catch (e: Exception) {
+                // Ignore webkit errors
+            }
+            onComplete()
         }
     }
 }

@@ -22,6 +22,6 @@ dependencyResolutionManagement {
   }
 }
 
-rootProject.name = "HACKER"
+rootProject.name = "Secure Browser"
 
 include(":app")

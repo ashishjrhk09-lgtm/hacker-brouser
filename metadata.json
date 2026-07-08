@@ -1,6 +1,6 @@
 {
-  "name": "HACKER",
-  "description": "An advanced, single-site secure browser with local developer extensions support.",
+  "name": "Secure Browser",
+  "description": "An advanced, secure browser with local developer extensions support.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

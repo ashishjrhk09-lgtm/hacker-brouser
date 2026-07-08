@@ -40,12 +40,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.BrowserSettings
 import com.example.data.ConsoleLog
 import com.example.data.Extension
+import com.example.data.HistoryItem
 
 enum class BrowserTab(val title: String, val icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    BROWSER("Browser", Icons.Default.Language),
+    HOME("Home", Icons.Default.Home),
     EXTENSIONS("Extensions", Icons.Default.Extension),
-    CONSOLE("Console", Icons.Default.Terminal),
-    SECURITY("Security", Icons.Default.Security)
+    SETTINGS("Settings", Icons.Default.Settings)
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -60,7 +60,7 @@ fun BrowserMainScreen(
     val logs by viewModel.logs.collectAsStateWithLifecycle()
     val isAuthorized by viewModel.isAuthorized.collectAsStateWithLifecycle()
 
-    var currentTab by remember { mutableStateOf(BrowserTab.BROWSER) }
+    var currentTab by remember { mutableStateOf(BrowserTab.HOME) }
     var showAddDialog by remember { mutableStateOf(false) }
     var isImmersiveMode by remember { mutableStateOf(false) }
     var showSplash by rememberSaveable { mutableStateOf(true) }
@@ -79,7 +79,7 @@ fun BrowserMainScreen(
         Scaffold(
             bottomBar = {
                 AnimatedVisibility(
-                    visible = !isImmersiveMode || currentTab != BrowserTab.BROWSER,
+                    visible = !isImmersiveMode || currentTab != BrowserTab.HOME,
                     enter = slideInVertically(initialOffsetY = { it }),
                     exit = slideOutVertically(targetOffsetY = { it })
                 ) {
@@ -110,7 +110,7 @@ fun BrowserMainScreen(
                     .padding(innerPadding)
             ) {
                 when (currentTab) {
-                    BrowserTab.BROWSER -> {
+                    BrowserTab.HOME -> {
                         BrowserWebView(
                             targetUrl = settings.targetUrl,
                             isUrlLocked = settings.isUrlLocked,
@@ -131,7 +131,8 @@ fun BrowserMainScreen(
                             onBlockedAttempt = { url ->
                                 viewModel.insertLog("WARNING", "Blocked navigation attempt to out-of-scope domain: $url", "SecurityFilter", 0)
                                 Toast.makeText(context, "Browsing is locked to this domain!", Toast.LENGTH_LONG).show()
-                            }
+                            },
+                            viewModel = viewModel
                         )
                     }
                     BrowserTab.EXTENSIONS -> {
@@ -142,12 +143,11 @@ fun BrowserMainScreen(
                             onAddClick = { showAddDialog = true }
                         )
                     }
-                    BrowserTab.CONSOLE -> {
-                        ConsolePane(logs = logs, onClear = { viewModel.clearLogs() })
-                    }
-                    BrowserTab.SECURITY -> {
-                        SecuritySettingsPane(
+                    BrowserTab.SETTINGS -> {
+                        SettingsScreen(
                             settings = settings,
+                            viewModel = viewModel,
+                            logs = logs,
                             onSave = { updatedSettings ->
                                 viewModel.updateSettings(
                                     targetUrl = updatedSettings.targetUrl,
@@ -158,7 +158,7 @@ fun BrowserMainScreen(
                                     clearCacheOnExit = updatedSettings.clearCacheOnExit,
                                     isDeveloperModeEnabled = updatedSettings.isDeveloperModeEnabled
                                 )
-                                Toast.makeText(context, "Security settings saved!", Toast.LENGTH_SHORT).show()
+                                Toast.makeText(context, "Settings saved successfully!", Toast.LENGTH_SHORT).show()
                             }
                         )
                     }
@@ -607,6 +607,7 @@ fun ConsolePane(
 fun SecuritySettingsPane(
     settings: BrowserSettings,
     onSave: (BrowserSettings) -> Unit,
+    onClearAllData: () -> Unit,
     modifier: Modifier = Modifier
 ) {
     var urlInput by remember { mutableStateOf(settings.targetUrl) }
@@ -834,6 +835,25 @@ fun SecuritySettingsPane(
                 Text("Save Security Preferences")
             }
         }
+
+        item {
+            Spacer(modifier = Modifier.height(8.dp))
+            OutlinedButton(
+                onClick = onClearAllData,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("clear_all_data_button"),
+                colors = ButtonDefaults.outlinedButtonColors(
+                    contentColor = MaterialTheme.colorScheme.error
+                ),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error)
+            ) {
+                Icon(Icons.Default.DeleteForever, contentDescription = null)
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Clear All Browser Data & Cache")
+            }
+        }
     }
 }
 
@@ -894,12 +914,32 @@ fun AddExtensionDialog(
                 .fillMaxWidth(0.92f)
                 .wrapContentHeight()
                 .padding(vertical = 16.dp),
-            shape = MaterialTheme.shapes.large,
-            color = MaterialTheme.colorScheme.surface,
-            tonalElevation = 6.dp
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f), // Transparent Liquid Glass
+            border = BorderStroke(
+                width = 1.5.dp,
+                brush = androidx.compose.ui.graphics.Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF00D2FF).copy(alpha = 0.6f), // Neon Blue liquid border
+                        Color(0xFF00FF87).copy(alpha = 0.2f), // Neon Green liquid border
+                        Color(0xFF7B2CBF).copy(alpha = 0.5f)  // Cyber Violet liquid border
+                    )
+                )
+            ),
+            tonalElevation = 12.dp
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
+                modifier = Modifier
+                    .background(
+                        androidx.compose.ui.graphics.Brush.radialGradient(
+                            colors = listOf(
+                                Color(0xFF00D2FF).copy(alpha = 0.08f),
+                                Color.Transparent
+                            ),
+                            radius = 600f
+                        )
+                    )
+                    .padding(24.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
                 Row(
@@ -1091,25 +1131,33 @@ fun HackerSplashScreen(onFinished: () -> Unit) {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFF050B14)), // Deep Cyber Navy/Black
+            .background(
+                androidx.compose.ui.graphics.Brush.verticalGradient(
+                    colors = listOf(
+                        Color(0xFFE6F0FA), // Ice Blue
+                        Color(0xFFFFFFFF), // Pure White
+                        Color(0xFFD4E6F1)  // Soft Light Navy Blue
+                    )
+                )
+            ),
         contentAlignment = Alignment.Center
     ) {
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(20.dp)
         ) {
-            // Elegant pulsing globe logo
+            // Elegant pulsing globe logo in deep full navy blue
             Icon(
                 imageVector = Icons.Default.Language,
                 contentDescription = null,
-                tint = Color(0xFF00D2FF), // Neon Blue
+                tint = Color(0xFF002D62), // Rich Navy Blue
                 modifier = Modifier
                     .size(80.dp)
             )
 
             Spacer(modifier = Modifier.height(8.dp))
 
-            // Clean "MADE WITH ❤️ BY ASHISH"
+            // Clean "MADE WITH ❤️ BY ASHISH" in full navy blue
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1117,7 +1165,7 @@ fun HackerSplashScreen(onFinished: () -> Unit) {
                 Text(
                     text = "MADE WITH",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        color = Color(0xFF00D2FF), // Neon Blue
+                        color = Color(0xFF002D62), // Rich Navy Blue
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 2.sp
@@ -1132,7 +1180,7 @@ fun HackerSplashScreen(onFinished: () -> Unit) {
                 Text(
                     text = "BY ASHISH",
                     style = MaterialTheme.typography.titleMedium.copy(
-                        color = Color(0xFF00D2FF), // Neon Blue
+                        color = Color(0xFF002D62), // Rich Navy Blue
                         fontWeight = FontWeight.Bold,
                         fontFamily = FontFamily.Monospace,
                         letterSpacing = 2.sp
@@ -1143,10 +1191,152 @@ fun HackerSplashScreen(onFinished: () -> Unit) {
             Spacer(modifier = Modifier.height(16.dp))
 
             CircularProgressIndicator(
-                color = Color(0xFF00D2FF),
+                color = Color(0xFF002D62), // Rich Navy Blue
                 strokeWidth = 3.dp,
                 modifier = Modifier.size(28.dp)
             )
+        }
+    }
+}
+
+@Composable
+fun SettingsScreen(
+    settings: BrowserSettings,
+    viewModel: BrowserViewModel,
+    logs: List<ConsoleLog>,
+    onSave: (BrowserSettings) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val history by viewModel.history.collectAsStateWithLifecycle()
+    var selectedSubTab by remember { mutableStateOf(0) } // 0 = Security, 1 = History, 2 = Console
+
+    Column(modifier = modifier.fillMaxSize()) {
+        TabRow(selectedTabIndex = selectedSubTab) {
+            Tab(
+                selected = selectedSubTab == 0,
+                onClick = { selectedSubTab = 0 },
+                text = { Text("Security") },
+                icon = { Icon(Icons.Default.Security, contentDescription = null) }
+            )
+            Tab(
+                selected = selectedSubTab == 1,
+                onClick = { selectedSubTab = 1 },
+                text = { Text("History") },
+                icon = { Icon(Icons.Default.History, contentDescription = null) }
+            )
+            Tab(
+                selected = selectedSubTab == 2,
+                onClick = { selectedSubTab = 2 },
+                text = { Text("Console") },
+                icon = { Icon(Icons.Default.Terminal, contentDescription = null) }
+            )
+        }
+
+        Box(modifier = Modifier.weight(1f)) {
+            when (selectedSubTab) {
+                0 -> {
+                    SecuritySettingsPane(
+                        settings = settings,
+                        onSave = onSave,
+                        onClearAllData = {
+                            viewModel.clearAllData {
+                                Toast.makeText(context, "All browser data & history cleared!", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    )
+                }
+                1 -> {
+                    Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = "Browsing History",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            if (history.isNotEmpty()) {
+                                TextButton(
+                                    onClick = {
+                                        viewModel.clearHistory()
+                                        Toast.makeText(context, "History cleared!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Clear History")
+                                }
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                        if (history.isEmpty()) {
+                            Box(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(
+                                        imageVector = Icons.Default.History,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(48.dp),
+                                        tint = MaterialTheme.colorScheme.outlineVariant
+                                    )
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text(
+                                        text = "No history recorded yet",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
+                            }
+                        } else {
+                            LazyColumn(
+                                modifier = Modifier.weight(1f).fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                items(history) { item ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow
+                                        )
+                                    ) {
+                                        Column(modifier = Modifier.padding(12.dp)) {
+                                            Text(
+                                                text = item.title,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = item.url,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                maxLines = 1,
+                                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            val dateStr = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(item.timestamp))
+                                            Text(
+                                                text = dateStr,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                color = MaterialTheme.colorScheme.outline
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                2 -> {
+                    ConsolePane(logs = logs, onClear = { viewModel.clearLogs() })
+                }
+            }
         }
     }
 }

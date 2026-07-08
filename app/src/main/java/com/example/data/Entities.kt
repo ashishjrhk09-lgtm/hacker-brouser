@@ -35,3 +35,11 @@ data class ConsoleLog(
     val lineNumber: Int,
     val timestamp: Long = System.currentTimeMillis()
 )
+
+@Entity(tableName = "browser_history")
+data class HistoryItem(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val title: String,
+    val url: String,
+    val timestamp: Long = System.currentTimeMillis()
+)
