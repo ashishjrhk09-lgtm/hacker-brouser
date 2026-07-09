@@ -27,6 +27,23 @@ jobs:
           java-version: '17'
           cache: 'gradle'
 
+      - name: Ensure Gradle Wrapper JAR is present and valid
+        run: |
+          mkdir -p gradle/wrapper
+          if [ ! -f gradle/wrapper/gradle-wrapper.jar ] || [ $(stat -c%s gradle/wrapper/gradle-wrapper.jar) -lt 1000 ]; then
+            echo "Gradle wrapper JAR is missing or invalid. Downloading official Gradle 8.6.0 wrapper JAR..."
+            curl -Lo gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.6.0/gradle/wrapper/gradle-wrapper.jar
+          fi
+          EXPECTED_SHA="d3b261c2820e9e3d8d639ed084900f11f4a86050a8f83342ade7b6bc9b0d2bdd"
+          ACTUAL_SHA=$(sha256sum gradle/wrapper/gradle-wrapper.jar | awk '{print $1}')
+          if [ "$ACTUAL_SHA" != "$EXPECTED_SHA" ]; then
+            echo "Checksum mismatch! Expected: $EXPECTED_SHA, Got: $ACTUAL_SHA. Re-downloading..."
+            curl -Lo gradle/wrapper/gradle-wrapper.jar https://github.com/gradle/gradle/raw/v8.6.0/gradle/wrapper/gradle-wrapper.jar
+          fi
+
+      - name: Validate Gradle Wrapper
+        uses: gradle/actions/wrapper-validation@v3
+
       - name: Make Gradle Wrapper Executable
         run: chmod +x gradlew
 
